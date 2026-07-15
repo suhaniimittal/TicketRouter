@@ -18,9 +18,6 @@ public class TicketEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique= true,nullable = false)
-    private String ticketId;
-
     private String title;
 
     private String createdBy;

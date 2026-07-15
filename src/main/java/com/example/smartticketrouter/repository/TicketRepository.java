@@ -12,14 +12,12 @@ import java.util.Optional;
 public interface TicketRepository extends JpaRepository<TicketEntity,Long> {
 
     Optional<TicketEntity> findFirstByNormalizedMessageOrderByIdAsc(String normalizedMessage);
-
-    Optional<TicketEntity> findByTicketId(String ticketId);
-
+    
     // NEW: get all tickets of a given priority
-    List<TicketEntity> findByPriority(String priority);
+    List<TicketEntity> findByPriorityIgnoreCase(String priority);
 
     // NEW: get all tickets assigned to a given team
-    List<TicketEntity> findByAssignedTeam(String assignedTeam);
+    List<TicketEntity> findByAssignedTeamIgnoreCase(String assignedTeam);
 
 
 }

@@ -3,7 +3,10 @@ package com.example.smartticketrouter.controller;
 import com.example.smartticketrouter.entity.TicketEntity;
 import com.example.smartticketrouter.model.TicketRequest;
 import com.example.smartticketrouter.model.TicketResponse;
+import com.example.smartticketrouter.service.TicketQueryService;
 import com.example.smartticketrouter.service.TicketService;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -12,41 +15,48 @@ import java.util.List;
 @RequestMapping("/tickets")
 public class TicketController {
 
-    private final TicketService ticketService;  // this controller needs TicketService
+    private final TicketService ticketService;
+    private final TicketQueryService ticketQueryService;
 
-    // constructor injection (spring boot creates TicketService object and gives to controller)
-    public TicketController(TicketService ticketService) {
+    public TicketController(TicketService ticketService, TicketQueryService ticketQueryService) {
         this.ticketService = ticketService;
-
+        this.ticketQueryService = ticketQueryService;
     }
 
-    @PostMapping("/route/batch")
-    public List<TicketResponse> routeTicketsBatch(@RequestBody List<TicketRequest> requests) {
-        return ticketService.routeTicketsBatch(requests);
-    }
+//    @PostMapping("/route")
+//    public TicketResponse routeTicket(@Valid @RequestBody TicketRequest request) {
+//        return ticketService.routeTicket(request);
+//    }
 
     @PostMapping("/route")
-    public TicketResponse routeTicket(@RequestBody TicketRequest request) throws Exception {
+    public ResponseEntity<?> routeTicket(@RequestBody TicketRequest request) {
         return ticketService.routeTicket(request);
     }
 
-    @GetMapping("/{ticketId}")
-    public TicketEntity getTicketById(@PathVariable String ticketId) {
-        return ticketService.getTicketById(ticketId);
-    }
+    @PostMapping("/route/batch")
+    public ResponseEntity<List<Object>> routeTicketsBatch(
+            @RequestBody List<TicketRequest> requests) {
 
-    @GetMapping("/priority/{priority}")
-    public List<TicketEntity> getTicketsByPriority(@PathVariable String priority) {
-        return ticketService.getTicketsByPriority(priority);
-    }
-
-    @GetMapping("/team/{team}")
-    public List<TicketEntity> getTicketsByTeam(@PathVariable String team) {
-        return ticketService.getTicketsByTeam(team);
+        return ResponseEntity.ok(ticketService.routeTicketsBatch(requests));
     }
 
     @GetMapping
     public List<TicketEntity> getAllTickets() {
-        return ticketService.getAllTickets();
+        return ticketQueryService.getAllTickets();
+    }
+
+    @GetMapping("/{id}")
+    public TicketEntity getTicketById(@PathVariable Long id) {
+        return ticketQueryService.getTicketById(id);
+    }
+
+    @GetMapping("/priority/{priority}")
+    public List<TicketEntity> getTicketsByPriority(@PathVariable String priority) {
+        return ticketQueryService.getTicketsByPriority(priority);
+    }
+
+    @GetMapping("/team/{team}")
+    public List<TicketEntity> getTicketsByTeam(@PathVariable String team) {
+        return ticketQueryService.getTicketsByTeam(team);
     }
 }

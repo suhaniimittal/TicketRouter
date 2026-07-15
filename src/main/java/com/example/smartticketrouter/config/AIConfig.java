@@ -3,6 +3,7 @@ package com.example.smartticketrouter.config;
 import com.example.smartticketrouter.ai.TicketAssistant;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
+import org.apache.catalina.Manager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

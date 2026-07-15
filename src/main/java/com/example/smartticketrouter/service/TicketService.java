@@ -5,84 +5,73 @@ import com.example.smartticketrouter.entity.TicketEntity;
 import com.example.smartticketrouter.model.TicketRequest;
 import com.example.smartticketrouter.model.TicketResponse;
 import com.example.smartticketrouter.repository.TicketRepository;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 public class TicketService {
 
     private final TicketAssistant ticketAssistant;
     private final TicketRepository ticketRepository;
-
-    private static final List<String> VALID_CATEGORIES =
-            List.of("Billing", "Technical", "Account", "Orders", "Shipping", "Refund", "Product", "General");
-
-    private static final List<String> VALID_PRIORITIES = List.of("High", "Medium", "Low");
-
-    private static final Map<String, String> TEAM_MAP = Map.of(
-            "Billing", "Billing Team",
-            "Technical", "Technical Support",
-            "Account", "Account Management",
-            "Orders", "Order Management",
-            "Shipping", "Logistics Team",
-            "Refund", "Refund Department",
-            "Product", "Product Support",
-            "General", "Customer Care"
-    );
+    private final ValidationService validationService;
+    private final NormalizationService normalizationService;
+    private final FallbackService fallbackService;
+    private final DuplicateCheckService duplicateCheckService;
 
     private static final double LOW_CONFIDENCE_THRESHOLD = 0.5;
 
-    public TicketService(TicketAssistant ticketAssistant, TicketRepository ticketRepository) {
+    public TicketService(TicketAssistant ticketAssistant,
+                         TicketRepository ticketRepository,
+                         ValidationService validationService,
+                         NormalizationService normalizationService,
+                         FallbackService fallbackService,
+                         DuplicateCheckService duplicateCheckService) {
         this.ticketAssistant = ticketAssistant;
         this.ticketRepository = ticketRepository;
+        this.validationService = validationService;
+        this.normalizationService = normalizationService;
+        this.fallbackService = fallbackService;
+        this.duplicateCheckService = duplicateCheckService;
     }
 
-    public TicketEntity getTicketById(String ticketId) {
-        return ticketRepository.findByTicketId(ticketId)
-                .orElseThrow(() -> new NoSuchElementException("No ticket found with ID: " + ticketId));
-    }
+    public ResponseEntity<?> routeTicket(TicketRequest request) {
 
-    public List<TicketEntity> getTicketsByPriority(String priority) {
-        return ticketRepository.findByPriority(priority);
-    }
+        // NEW: validate the customer's own input first (email format etc.)
 
-    public List<TicketEntity> getTicketsByTeam(String assignedTeam) {
-        return ticketRepository.findByAssignedTeam(assignedTeam);
-    }
-
-    public TicketResponse routeTicket(TicketRequest request) {
-
-        if (request.getTicketId() == null || request.getTicketId().isBlank()) {
-            request.setTicketId("TCK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        try {
+            validationService.validateRequestOrThrow(
+                    request.getTitle(),
+                    request.getEmail(),
+                    request.getCreatedBy()
+            );
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(
+                    Map.of("message", e.getMessage())
+            );
         }
 
         boolean isBlank = request.getMessage() == null || request.getMessage().isBlank();
-
-        // NEW: compute the normalized version once, reuse it for both searching and saving
-        String normalizedMessage = isBlank ? "" : normalize(request.getMessage());
+        String normalizedMessage = isBlank ? "" : normalizationService.normalize(request.getMessage());
 
         TicketResponse response;
         boolean needsReview;
         long startTime = System.currentTimeMillis();
 
-        Optional<TicketEntity> existing = isBlank
-                ? Optional.empty()
-                : ticketRepository.findFirstByNormalizedMessageOrderByIdAsc(normalizedMessage);
+        Optional<TicketEntity> existing = duplicateCheckService.findExisting(normalizedMessage);
 
         if (existing.isPresent()) {
             TicketEntity match = existing.get();
-            response = new TicketResponse();
-            response.setCategory(match.getCategory());
-            response.setPriority(match.getPriority());
-            response.setAssignedTeam(match.getAssignedTeam());
-            response.setReason(match.getReason() + " (reused from ticket " + match.getTicketId() + ")");
-            response.setConfidence(match.getConfidence());
+            response = duplicateCheckService.toReusedResponse(match);
             needsReview = Boolean.TRUE.equals(match.getNeedsReview());
 
         } else if (isBlank) {
-            response = insufficientInfoResponse();
+            response = fallbackService.insufficientInfoResponse();
             needsReview = true;
 
         } else {
@@ -92,7 +81,7 @@ public class TicketService {
             for (int attemptNumber = 1; attemptNumber <= 2 && !success; attemptNumber++) {
                 try {
                     attempt = ticketAssistant.classify(request.getMessage());
-                    validateOrThrow(attempt);
+                    validationService.validateOrThrow(attempt);
                     success = true;
                 } catch (Exception e) {
                     System.out.println("Attempt " + attemptNumber + " failed: " + e.getMessage());
@@ -105,7 +94,7 @@ public class TicketService {
                 needsReview = response.getConfidence() != null
                         && response.getConfidence() < LOW_CONFIDENCE_THRESHOLD;
             } else {
-                response = fallbackResponse();
+                response = fallbackService.fallbackResponse();
                 needsReview = true;
             }
         }
@@ -113,12 +102,11 @@ public class TicketService {
         long processingTime = System.currentTimeMillis() - startTime;
 
         TicketEntity entity = new TicketEntity();
-        entity.setTicketId(request.getTicketId());
         entity.setTitle(request.getTitle());
         entity.setCreatedBy(request.getCreatedBy());
         entity.setEmail(request.getEmail());
         entity.setMessage(request.getMessage());
-        entity.setNormalizedMessage(normalizedMessage);   // NEW: save it for future duplicate lookups
+        entity.setNormalizedMessage(normalizedMessage);
         entity.setCategory(response.getCategory());
         entity.setPriority(response.getPriority());
         entity.setAssignedTeam(response.getAssignedTeam());
@@ -128,75 +116,18 @@ public class TicketService {
         entity.setNeedsReview(needsReview);
         entity.setCreatedAt(LocalDateTime.now());
 
-        try {
-            ticketRepository.save(entity);
-        } catch (org.springframework.dao.DataIntegrityViolationException e) {
-            throw new IllegalArgumentException(
-                    "A ticket with ID '" + request.getTicketId() + "' already exists.");
-        }
+        ticketRepository.save(entity);
 
-        return response;
+
+
+        return ResponseEntity.ok(response);
     }
 
-    public List<TicketResponse> routeTicketsBatch(List<TicketRequest> requests) {
+    public List<Object> routeTicketsBatch(List<TicketRequest> requests) {
         return requests.stream()
                 .map(this::routeTicket)
+                .map(ResponseEntity::getBody)
+                .map(body -> (Object) body)
                 .toList();
-    }
-
-    public List<TicketEntity> getAllTickets() {
-        return ticketRepository.findAll();
-    }
-
-    // NEW: turns messy real-world text into a consistent comparable form
-    private String normalize(String message) {
-        return message
-                .trim()                          // remove leading/trailing spaces
-                .toLowerCase()                   // "Payment Failed" -> "payment failed"
-                .replaceAll("\\s+", " ")          // collapse multiple spaces/tabs/newlines into one space
-                .replaceAll("[!?.,]+$", "");      // strip trailing punctuation like "!!!" or "."
-    }
-
-    private void validateOrThrow(TicketResponse r) {
-        if (r == null
-                || r.getCategory() == null
-                || r.getPriority() == null
-                || r.getAssignedTeam() == null
-                || r.getReason() == null
-                || r.getConfidence() == null) {
-            throw new IllegalStateException("AI response is missing one or more required fields");
-        }
-        if (!VALID_CATEGORIES.contains(r.getCategory())) {
-            throw new IllegalStateException("AI returned an unrecognized category: " + r.getCategory());
-        }
-        if (!VALID_PRIORITIES.contains(r.getPriority())) {
-            throw new IllegalStateException("AI returned an unrecognized priority: " + r.getPriority());
-        }
-        if (!TEAM_MAP.get(r.getCategory()).equals(r.getAssignedTeam())) {
-            throw new IllegalStateException("Assigned team does not match category mapping");
-        }
-        if (r.getConfidence() < 0.0 || r.getConfidence() > 1.0) {
-            throw new IllegalStateException("Confidence is out of valid range");
-        }
-    }
-
-    private TicketResponse fallbackResponse() {
-        TicketResponse r = new TicketResponse();
-        r.setCategory("General");
-        r.setPriority("Medium");
-        r.setAssignedTeam("Customer Care");
-        r.setReason("Automatic classification failed; routed for manual review.");
-        r.setConfidence(0.0);
-        return r;
-    }
-
-    private TicketResponse insufficientInfoResponse() {
-        TicketResponse r = new TicketResponse();
-        r.setCategory("General");
-        r.setPriority("Low");
-        r.setAssignedTeam("Customer Care");
-        r.setReason("No message content provided.");
-        r.setConfidence(0.0);
-        return r;
     }
 }
