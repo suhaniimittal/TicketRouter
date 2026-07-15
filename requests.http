@@ -1,0 +1,3 @@
+### Single Ticket
+### Get all ticket history
+GET http://localhost:8080/tickets
