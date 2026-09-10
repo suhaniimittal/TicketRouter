@@ -7,7 +7,6 @@ import com.example.smartticketrouter.model.TicketResponse;
 import com.example.smartticketrouter.repository.TicketRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import com.example.smartticketrouter.service.FraudCheckService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,7 +23,6 @@ public class TicketService {
     private final NormalizationService normalizationService;
     private final FallbackService fallbackService;
     private final DuplicateCheckService duplicateCheckService;
-    private final FraudCheckService fraudCheckService;
 
     private static final double LOW_CONFIDENCE_THRESHOLD = 0.5;
 
