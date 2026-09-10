@@ -1,0 +1,15 @@
+package com.example.smartticketrouter.service;
+
+import org.springframework.stereotype.Service;
+
+@Service
+public class FraudCheckService {
+
+    public boolean isSuspicious(String description) {
+        return description != null && description.toLowerCase().contains("urgent refund");
+    }
+
+    public int riskScore(String description) {
+        return isSuspicious(description) ? 90 : 10;
+    }
+}
