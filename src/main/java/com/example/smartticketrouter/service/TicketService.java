@@ -122,16 +122,7 @@ public class TicketService {
 
         return ResponseEntity.ok(response);
     }
-    public String statusOf(String id) {
-    if (id == null || id.isBlank()) {
-        throw new IllegalArgumentException("Ticket id is required");
-    }
-    return ticketRepository.findById(id)
-        .map(TicketEntity::getStatus)
-        .orElse("UNKNOWN");
-}
-
-
+   
     public List<Object> routeTicketsBatch(List<TicketRequest> requests) {
         return requests.stream()
                 .map(this::routeTicket)
