@@ -59,9 +59,6 @@ public class TicketController {
     public List<TicketEntity> getTicketsByTeam(@PathVariable String team) {
         return ticketQueryService.getTicketsByTeam(team);
     }
-    @GetMapping("/tickets/{id}/status")
-    public String checkStatus(@PathVariable String id) {
-        return ticketService.statusOf(id);
-    }
+
 
 }
